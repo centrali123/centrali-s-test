@@ -1,11 +1,14 @@
-// server.js
 const express = require('express');
 const cors = require('cors');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware
-app.use(cors());
+// Middleware — FIXED CORS HERE
+app.use(cors({
+  origin: '*',  // ← THIS ALLOWS ALL SITES (including google.com)
+  methods: ['GET', 'POST', 'OPTIONS'],  // ← ADDED OPTIONS FOR PREFLIGHT
+  allowedHeaders: ['Content-Type']  // ← ALLOWS JSON
+}));
 app.use(express.json({ limit: '10mb' })); // big payloads safe
 
 // In-memory broadcast (all open dashboards get live updates)
@@ -16,6 +19,7 @@ app.get('/stream', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Access-Control-Allow-Origin', '*');  // ← CORS FOR SSE
   res.flushHeaders();
 
   const send = (data) => {
