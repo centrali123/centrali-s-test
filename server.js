@@ -1,20 +1,13 @@
-const express = require('express');
 const cors = require('cors');
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-// FIXED CORS: Allow all origins without credentials
 app.use(cors({
-  origin: '*',  // Wildcard OK since no credentials
+  origin: '*',  // Wildcard OK now
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type'],
-  credentials: false  // ← KEY FIX: No credentials mode
+  credentials: false  // ← KEY FIX: Explicitly disable credentials
 }));
-app.use(express.json({ limit: '10mb' }));
 
-// Explicit OPTIONS handler for preflight
-app.options('/log', cors());  // ← ADDED FOR PREFLIGHT
-
+// Add this for preflight OPTIONS
+app.options('*', cors());
 // In-memory broadcast
 const clients = new Set();
 
